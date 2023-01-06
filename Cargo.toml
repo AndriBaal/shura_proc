@@ -2,7 +2,7 @@
 name = "shura_proc"
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/Shuray04/shura_proc"
 description = "Derive macros for the shura component system"
