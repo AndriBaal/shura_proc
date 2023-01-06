@@ -1,0 +1,14 @@
+[package]
+name = "shura_proc"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/Shuray04/shura_proc"
+description = "Derive macros for the shura component system"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn="1.0.105"
