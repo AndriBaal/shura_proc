@@ -5,6 +5,7 @@ edition = "2021"
 license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/AndriBaal/shura_proc"
+documentation = "https://docs.rs/shura_proc"
 description = "Derive macros for the shura component system"
 
 [lib]
