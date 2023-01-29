@@ -78,3 +78,27 @@ impl std::ops::DerefMut for {struct_name} {{
     .parse()
     .unwrap()
 }
+
+
+
+#[proc_macro_derive(Scene, attributes(scene))]
+pub fn derive_scene(input: TokenStream) -> TokenStream {
+    let ast = syn::parse_macro_input!(input as syn::DeriveInput);
+    let struct_name = ast.ident;
+
+    let data_struct = match ast.data {
+        syn::Data::Struct(ref data_struct) => data_struct,
+        _ => panic!("Must be a struct!"),
+    };
+
+    let (field_name, type_name) = position_field(data_struct, "scene")
+        .expect("The helper attribute #[scene] has not been found!");
+
+    format!(
+        "
+",
+    )
+    .parse()
+    .unwrap()
+}
+
