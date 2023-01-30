@@ -51,7 +51,7 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
 
     format!(
         "
-impl SceneDerive for {struct_name} {{
+impl ComponentDerive for {struct_name} {{
     fn inner(&self) -> &dyn shura::BaseScene {{
         &self.{field_name}
     }}
@@ -94,7 +94,7 @@ pub fn derive_scene(input: TokenStream) -> TokenStream {
 
     format!(
         "
-impl ComponentDerive for {struct_name} {{
+impl SceneDerive for {struct_name} {{
     fn inner(&self) -> &dyn shura::BaseScene {{
         &self.{field_name}
     }}
