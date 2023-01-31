@@ -52,11 +52,11 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
     format!(
         "
 impl ComponentDerive for {struct_name} {{
-    fn inner(&self) -> &dyn shura::BaseScene {{
+    fn base(&self) -> &dyn shura::BaseComponent {{
         &self.{field_name}
     }}
 
-    fn inner_mut(&mut self) -> &mut dyn shura::BaseScene {{
+    fn base_mut(&mut self) -> &mut dyn shura::BaseComponent {{
         &mut self.{field_name}
     }}
 }}
@@ -95,11 +95,11 @@ pub fn derive_scene(input: TokenStream) -> TokenStream {
     format!(
         "
 impl SceneDerive for {struct_name} {{
-    fn inner(&self) -> &dyn shura::BaseScene {{
+    fn base(&self) -> & {type_name} {{
         &self.{field_name}
     }}
 
-    fn inner_mut(&mut self) -> &mut dyn shura::BaseScene {{
+    fn base_mut(&mut self) -> &mut {type_name} {{
         &mut self.{field_name}
     }}
 }}
