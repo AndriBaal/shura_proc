@@ -72,7 +72,6 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
         panic!("A component with the struct identifier '{struct_identifier}' already exists!");
     }
     hashes.insert(hash);
-    println!("{} {}", struct_identifier, hash);
 
     let data_struct = match ast.data {
         Data::Struct(ref data_struct) => data_struct,
