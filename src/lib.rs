@@ -1,7 +1,7 @@
-use proc_macro::TokenStream;
 use lazy_static::lazy_static;
-use std::sync::Mutex;
+use proc_macro::TokenStream;
 use std::collections::HashSet;
+use std::sync::Mutex;
 use syn::{parse_macro_input, Data, DataStruct, DeriveInput, Fields, Type, __private::ToTokens};
 
 fn position_field(data_struct: &DataStruct, attr_name: &str) -> Option<(String, String)> {
@@ -28,22 +28,28 @@ fn position_field(data_struct: &DataStruct, attr_name: &str) -> Option<(String, 
     None
 }
 
-
-// fn name_field(ast: &DeriveInput, attr_name: &str) -> Option<String> {
-//     for attr in &ast.attrs {
-//         let name = attr.path.to_token_stream().to_string();
-//         let value = attr.parse_args::<String>().unwrap();
-//         println!("{}", value);
-//     }
-//     return None;
-// }
-
-lazy_static! {
-    static ref USED_NAMES: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
+fn name_field(ast: &DeriveInput, attr_name: &str) -> Option<String> {
+    for attr in &ast.attrs {
+        let name = attr.path.to_token_stream().to_string();
+        if name == attr_name {
+            let mut value = attr.tokens.to_string();
+            assert!(
+                value.len() >= 3,
+                "You need to provide a name like the following pattern: '#[name(Bunny)]'!"
+            );
+            value.pop();
+            value.remove(0);
+            return Some(value);
+        }
+    }
+    return None;
 }
 
+lazy_static! {
+    static ref USED_HASHES: Mutex<HashSet<u32>> = Mutex::new(HashSet::new());
+}
 
-#[proc_macro_derive(Component, attributes(component))]
+#[proc_macro_derive(Component, attributes(component, name))]
 /// All ComponentControllers need to  have a component as a field.
 /// This can be done using achieved using this macro.
 ///
@@ -58,12 +64,15 @@ lazy_static! {
 pub fn derive_component(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     let struct_name = ast.ident.to_string();
+    let struct_identifier = name_field(&ast, "name").unwrap_or(struct_name.clone());
 
-    let mut map = USED_NAMES.lock().unwrap();
-    if map.contains(&struct_name) {
-        panic!("A component with the struct name '{struct_name}' already exists!");
+    let mut hashes = USED_HASHES.lock().unwrap();
+    let hash = const_fnv1a_hash::fnv1a_hash_str_32(&struct_identifier);
+    if hashes.contains(&hash) {
+        panic!("A component with the struct identifier '{struct_identifier}' already exists!");
     }
-    map.insert(struct_name.clone());
+    hashes.insert(hash);
+    println!("{} {}", struct_identifier, hash);
 
     let data_struct = match ast.data {
         Data::Struct(ref data_struct) => data_struct,
@@ -73,13 +82,10 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
     let (field_name, type_name) = position_field(data_struct, "component")
         .expect("The helper attribute #[component] has not been found!");
 
-    // let name_field  = name_field(&ast, "component")
-    //     .expect("The helper attribute #[name] has not been found!");
-
     format!(
         "
 impl ComponentIdentifier for {struct_name} {{
-    const TYPE_NAME: &'static str = \"{struct_name}\";
+    const TYPE_NAME: &'static str = \"{struct_identifier}\";
 }}
 
 impl ComponentDerive for {struct_name} {{
