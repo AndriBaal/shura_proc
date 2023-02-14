@@ -88,11 +88,11 @@ impl ComponentIdentifier for {struct_name} {{
 }}
 
 impl ComponentDerive for {struct_name} {{
-    fn base(&self) -> &dyn shura::BaseComponent {{
+    fn base(&self) -> &{type_name} {{
         &self.{field_name}
     }}
 
-    fn base_mut(&mut self) -> &mut dyn shura::BaseComponent {{
+    fn base_mut(&mut self) -> &mut {type_name} {{
         &mut self.{field_name}
     }}
 }}
