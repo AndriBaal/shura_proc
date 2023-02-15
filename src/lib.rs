@@ -4,6 +4,25 @@ use std::collections::HashSet;
 use std::sync::Mutex;
 use syn::{parse_macro_input, Data, DataStruct, DeriveInput, Fields, Type, __private::ToTokens};
 
+fn field_names(data_struct: &DataStruct) -> Vec<String> {
+    let mut result = vec![];
+    match data_struct.fields {
+        Fields::Named(ref fields_named) => {
+            for field in fields_named.named.iter() {
+                let field_name = field
+                    .ident
+                    .as_ref()
+                    .and_then(|f| Some(format!("\"{0}\"", f.to_string())))
+                    .unwrap();
+                println!("{}", field_name);
+                result.push(field_name);
+            }
+        }
+        _ => (),
+    }
+    return result;
+}
+
 fn position_field(data_struct: &DataStruct, attr_name: &str) -> Option<(String, String)> {
     match data_struct.fields {
         Fields::Named(ref fields_named) => {
@@ -63,8 +82,16 @@ lazy_static! {
 /// ```
 pub fn derive_component(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
+    let data_struct = match ast.data {
+        Data::Struct(ref data_struct) => data_struct,
+        _ => panic!("Must be a struct!"),
+    };
+
     let struct_name = ast.ident.to_string();
     let struct_identifier = name_field(&ast, "name").unwrap_or(struct_name.clone());
+
+    let fields = format!("&[{}]", field_names(data_struct).join(", "));
+    println!("{}", fields);
 
     let mut hashes = USED_HASHES.lock().unwrap();
     let hash = const_fnv1a_hash::fnv1a_hash_str_32(&struct_identifier);
@@ -73,21 +100,18 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
     }
     hashes.insert(hash);
 
-    let data_struct = match ast.data {
-        Data::Struct(ref data_struct) => data_struct,
-        _ => panic!("Must be a struct!"),
-    };
-
     let (field_name, type_name) = position_field(data_struct, "component")
         .expect("The helper attribute #[component] has not been found!");
 
     format!(
         "
-impl ComponentIdentifier for {struct_name} {{
+impl shura::ComponentIdentifier for {struct_name} {{
     const TYPE_NAME: &'static str = \"{struct_identifier}\";
+    const IDENTIFIER: shura::ComponentTypeId = shura::ComponentTypeId::new({hash});
+    const FIELDS: &'static [&'static str] = {fields};
 }}
 
-impl ComponentDerive for {struct_name} {{
+impl shura::ComponentDerive for {struct_name} {{
     fn base(&self) -> &{type_name} {{
         &self.{field_name}
     }}
