@@ -14,7 +14,6 @@ fn field_names(data_struct: &DataStruct) -> Vec<String> {
                     .as_ref()
                     .and_then(|f| Some(format!("\"{0}\"", f.to_string())))
                     .unwrap();
-                println!("{}", field_name);
                 result.push(field_name);
             }
         }
@@ -91,7 +90,6 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
     let struct_identifier = name_field(&ast, "name").unwrap_or(struct_name.clone());
 
     let fields = format!("&[{}]", field_names(data_struct).join(", "));
-    println!("{}", fields);
 
     let mut hashes = USED_HASHES.lock().unwrap();
     let hash = const_fnv1a_hash::fnv1a_hash_str_32(&struct_identifier);
