@@ -68,14 +68,14 @@ lazy_static! {
 }
 
 #[proc_macro_derive(Component, attributes(component, name))]
-/// All ComponentControllers need to  have a component as a field.
-/// This can be done using achieved using this macro.
+/// All components need to derive from the BaseComponent like the following
+/// example:
 ///
 /// # Example
 /// ```
 /// #[derive(Component)]
 /// struct Bunny {
-///     #[component] component: PositionComponent,
+///     #[component] component: BaseComponent,
 ///     linvel: Vector<f32>,
 /// }
 /// ```
