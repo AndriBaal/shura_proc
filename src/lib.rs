@@ -27,7 +27,7 @@ fn position_field(data_struct: &DataStruct, attr_name: &str) -> Option<(String, 
         Fields::Named(ref fields_named) => {
             for field in fields_named.named.iter() {
                 for attr in &field.attrs {
-                    let name = attr.path.to_token_stream().to_string();
+                    let name = attr.path().to_token_stream().to_string();
                     if name == attr_name {
                         match field.ty {
                             Type::Path(ref p) => {
@@ -48,9 +48,9 @@ fn position_field(data_struct: &DataStruct, attr_name: &str) -> Option<(String, 
 
 fn name_field(ast: &DeriveInput, attr_name: &str) -> Option<String> {
     for attr in &ast.attrs {
-        let name = attr.path.to_token_stream().to_string();
+        let name = attr.path().to_token_stream().to_string();
         if name == attr_name {
-            let mut value = attr.tokens.to_string();
+            let mut value = attr.to_token_stream().to_string();
             assert!(
                 value.len() >= 3,
                 "You need to provide a name like the following pattern: '#[name(Bunny)]'!"
@@ -70,8 +70,7 @@ lazy_static! {
 #[proc_macro_derive(Component, attributes(component, name))]
 /// All components need to derive from the BaseComponent like the following
 /// example:
-///
-/// # Example
+/// 
 /// ```
 /// #[derive(Component)]
 /// struct Bunny {
@@ -88,7 +87,6 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
 
     let struct_name = ast.ident.to_string();
     let struct_identifier = name_field(&ast, "name").unwrap_or(struct_name.clone());
-
     let fields = format!("&[{}]", field_names(data_struct).join(", "));
 
     let mut hashes = USED_HASHES.lock().unwrap();
@@ -98,29 +96,32 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
     }
     hashes.insert(hash);
 
-    let (field_name, type_name) = position_field(data_struct, "component")
+    let (field_name, base_name) = position_field(data_struct, "component")
         .expect("The helper attribute #[component] has not been found!");
 
     format!(
         "
-impl shura::ComponentIdentifier for {struct_name} {{
-    const TYPE_NAME: &'static str = \"{struct_identifier}\";
-    const IDENTIFIER: shura::ComponentTypeId = shura::ComponentTypeId::new({hash});
+impl shura::FieldNames for {struct_name} {{
     const FIELDS: &'static [&'static str] = {fields};
 }}
 
+impl shura::ComponentIdentifier for {struct_name} {{
+    const TYPE_NAME: &'static str = \"{struct_identifier}\";
+    const IDENTIFIER: shura::ComponentTypeId = shura::ComponentTypeId::new({hash});
+}}
+
 impl shura::ComponentDerive for {struct_name} {{
-    fn base(&self) -> &{type_name} {{
+    fn base(&self) -> &{base_name} {{
         &self.{field_name}
     }}
 
-    fn base_mut(&mut self) -> &mut {type_name} {{
+    fn base_mut(&mut self) -> &mut {base_name} {{
         &mut self.{field_name}
     }}
 }}
 
 impl std::ops::Deref for {struct_name} {{
-    type Target = {type_name};
+    type Target = {base_name};
     fn deref(&self) -> &Self::Target {{
         &self.{field_name}
     }}
@@ -131,7 +132,29 @@ impl std::ops::DerefMut for {struct_name} {{
         &mut self.{field_name}
     }}
 }}
-",
+    ",
+    )
+    .parse()
+    .unwrap()
+}
+
+#[proc_macro_derive(State, attributes(component, name))]
+pub fn derive_state(input: TokenStream) -> TokenStream {
+    let ast = parse_macro_input!(input as DeriveInput);
+    let data_struct = match ast.data {
+        Data::Struct(ref data_struct) => data_struct,
+        _ => panic!("Must be a struct!"),
+    };
+
+    let struct_name = ast.ident.to_string();
+    let fields = format!("&[{}]", field_names(data_struct).join(", "));
+
+    format!(
+        "
+impl shura::FieldNames for {struct_name} {{
+    const FIELDS: &'static [&'static str] = {fields};
+}}
+    ",
     )
     .parse()
     .unwrap()
