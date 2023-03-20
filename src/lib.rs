@@ -67,14 +67,14 @@ lazy_static! {
     static ref USED_HASHES: Mutex<HashSet<u32>> = Mutex::new(HashSet::new());
 }
 
-#[proc_macro_derive(Component, attributes(component, name))]
+#[proc_macro_derive(Component, attributes(base, name))]
 /// All components need to derive from the BaseComponent like the following
 /// example:
 /// 
 /// ```
 /// #[derive(Component)]
 /// struct Bunny {
-///     #[component] component: BaseComponent,
+///     #[base] base: BaseComponent,
 ///     linvel: Vector<f32>,
 /// }
 /// ```
@@ -96,7 +96,7 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
     }
     hashes.insert(hash);
 
-    let (field_name, base_name) = position_field(data_struct, "component")
+    let (field_name, base_name) = position_field(data_struct, "base")
         .expect("The helper attribute #[component] has not been found!");
 
     format!(
@@ -119,26 +119,13 @@ impl shura::ComponentDerive for {struct_name} {{
         &mut self.{field_name}
     }}
 }}
-
-impl std::ops::Deref for {struct_name} {{
-    type Target = {base_name};
-    fn deref(&self) -> &Self::Target {{
-        &self.{field_name}
-    }}
-}}
-
-impl std::ops::DerefMut for {struct_name} {{
-    fn deref_mut(&mut self) -> &mut Self::Target {{
-        &mut self.{field_name}
-    }}
-}}
     ",
     )
     .parse()
     .unwrap()
 }
 
-#[proc_macro_derive(State, attributes(component, name))]
+#[proc_macro_derive(State)]
 pub fn derive_state(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     let data_struct = match ast.data {
