@@ -70,7 +70,7 @@ lazy_static! {
 #[proc_macro_derive(Component, attributes(base, name))]
 /// All components need to derive from the BaseComponent like the following
 /// example:
-/// 
+///
 /// ```
 /// #[derive(Component)]
 /// struct Bunny {
@@ -142,6 +142,30 @@ impl shura::FieldNames for {struct_name} {{
     const FIELDS: &'static [&'static str] = {fields};
 }}
     ",
+    )
+    .parse()
+    .unwrap()
+}
+
+#[proc_macro_attribute]
+#[cfg(not(test))] // Work around for rust-lang/rust#62127
+pub fn main(_args: TokenStream, item: TokenStream) -> TokenStream {
+    format!(
+        "
+{item}
+
+#[cfg(target_os = \"android\")]
+#[no_mangle]
+fn android_main(app: AndroidApp) {{
+    shura_main(app);
+}}
+
+#[cfg(not(target_os = \"android\"))]
+#[allow(dead_code)]
+fn main() {{
+    shura_main();
+}}
+    "
     )
     .parse()
     .unwrap()
