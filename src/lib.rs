@@ -148,7 +148,6 @@ impl shura::FieldNames for {struct_name} {{
 }
 
 #[proc_macro_attribute]
-#[cfg(not(test))] // Work around for rust-lang/rust#62127
 pub fn main(_args: TokenStream, item: TokenStream) -> TokenStream {
     format!(
         "
@@ -157,13 +156,13 @@ pub fn main(_args: TokenStream, item: TokenStream) -> TokenStream {
 #[cfg(target_os = \"android\")]
 #[no_mangle]
 fn android_main(app: AndroidApp) {{
-    shura_main(app);
+    shura_main(shura::ShuraConfig::default(app));
 }}
 
 #[cfg(not(target_os = \"android\"))]
 #[allow(dead_code)]
 fn main() {{
-    shura_main();
+    shura_main(shura::ShuraConfig::default());
 }}
     "
     )
