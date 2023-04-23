@@ -12,6 +12,8 @@ description = "Derive macros for the shura component system"
 proc-macro = true
 
 [dependencies]
+proc-macro2 = "1.0"
 syn = "2.0"
 const-fnv1a-hash = "1.1"
 lazy_static = "1.4.0"
+quote="1.0"

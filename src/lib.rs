@@ -1,8 +1,10 @@
 use lazy_static::lazy_static;
 use proc_macro::TokenStream;
-use std::collections::HashSet;
+use proc_macro2::{Ident, TokenStream as TokenStream2};
+use quote::{quote, ToTokens};
 use std::sync::Mutex;
-use syn::{parse_macro_input, Data, DataStruct, DeriveInput, Fields, Type, __private::ToTokens};
+use std::{collections::HashSet, str::FromStr};
+use syn::{parse_macro_input, Data, DataStruct, DeriveInput, Fields, Type, TypePath};
 
 fn field_names(data_struct: &DataStruct) -> Vec<String> {
     let mut result = vec![];
@@ -22,18 +24,17 @@ fn field_names(data_struct: &DataStruct) -> Vec<String> {
     return result;
 }
 
-fn position_field(data_struct: &DataStruct, attr_name: &str) -> Option<(String, String)> {
-    match data_struct.fields {
-        Fields::Named(ref fields_named) => {
+fn position_field(data_struct: &DataStruct, attr_name: &str) -> Option<(Ident, TypePath)> {
+    match &data_struct.fields {
+        Fields::Named(fields_named) => {
             for field in fields_named.named.iter() {
                 for attr in &field.attrs {
-                    let name = attr.path().to_token_stream().to_string();
-                    if name == attr_name {
-                        match field.ty {
-                            Type::Path(ref p) => {
+                    let name = attr.path();
+                    if name.to_token_stream().to_string() == attr_name {
+                        match &field.ty {
+                            Type::Path(type_name) => {
                                 let field_name = field.ident.as_ref().unwrap();
-                                let type_name = p.to_token_stream().to_string();
-                                return Some((field_name.to_string(), type_name.to_string()));
+                                return Some((field_name.clone(), type_name.clone()));
                             }
                             _ => panic!("Cannot extract the type of the component."),
                         };
@@ -75,7 +76,7 @@ lazy_static! {
 /// #[derive(Component)]
 /// struct Bunny {
 ///     #[base] base: BaseComponent,
-///     linvel: Vector<f32>,
+///     linvel: Vector<f32>,    
 /// }
 /// ```
 pub fn derive_component(input: TokenStream) -> TokenStream {
@@ -85,44 +86,43 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
         _ => panic!("Must be a struct!"),
     };
 
-    let struct_name = ast.ident.to_string();
-    let struct_identifier = name_field(&ast, "name").unwrap_or(struct_name.clone());
-    let fields = format!("&[{}]", field_names(data_struct).join(", "));
+    let struct_name = ast.ident.clone();
+    let struct_identifier = name_field(&ast, "name").unwrap_or(struct_name.to_string().clone());
+    let fields =
+        TokenStream2::from_str(&format!("&[{}]", field_names(data_struct).join(", "))).unwrap();
+
+    let (field_name, _) = position_field(data_struct, "base")
+        .expect("The helper attribute #[component] has not been found!");
 
     let mut hashes = USED_HASHES.lock().unwrap();
     let hash = const_fnv1a_hash::fnv1a_hash_str_32(&struct_identifier);
+    let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
     if hashes.contains(&hash) {
         panic!("A component with the struct identifier '{struct_identifier}' already exists!");
     }
     hashes.insert(hash);
 
-    let (field_name, base_name) = position_field(data_struct, "base")
-        .expect("The helper attribute #[component] has not been found!");
+    quote!(
+        impl #impl_generics shura::FieldNames for #struct_name #ty_generics #where_clause {
+            const FIELDS: &'static [&'static str] = #fields;
+        }
 
-    format!(
-        "
-impl shura::FieldNames for {struct_name} {{
-    const FIELDS: &'static [&'static str] = {fields};
-}}
+        impl #impl_generics shura::ComponentIdentifier for #struct_name #ty_generics #where_clause {
+            const TYPE_NAME: &'static str = #struct_identifier;
+            const IDENTIFIER: shura::ComponentTypeId = shura::ComponentTypeId::new(#hash);
+        }
 
-impl shura::ComponentIdentifier for {struct_name} {{
-    const TYPE_NAME: &'static str = \"{struct_identifier}\";
-    const IDENTIFIER: shura::ComponentTypeId = shura::ComponentTypeId::new({hash});
-}}
+        impl #impl_generics shura::ComponentDerive for #struct_name #ty_generics #where_clause {
+            fn base(&self) -> &shura::BaseComponent {
+                self.#field_name.base()
+            }
 
-impl shura::ComponentDerive for {struct_name} {{
-    fn base(&self) -> &{base_name} {{
-        &self.{field_name}
-    }}
-
-    fn base_mut(&mut self) -> &mut {base_name} {{
-        &mut self.{field_name}
-    }}
-}}
-    ",
+            fn base_mut(&mut self) -> &mut shura::BaseComponent {
+                self.#field_name.base_mut()
+            }
+        }
     )
-    .parse()
-    .unwrap()
+    .into()
 }
 
 #[proc_macro_derive(State)]
@@ -133,39 +133,36 @@ pub fn derive_state(input: TokenStream) -> TokenStream {
         _ => panic!("Must be a struct!"),
     };
 
-    let struct_name = ast.ident.to_string();
-    let fields = format!("&[{}]", field_names(data_struct).join(", "));
+    let struct_name = ast.ident;
+    let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
+    let fields =
+        TokenStream2::from_str(&format!("&[{}]", field_names(data_struct).join(", "))).unwrap();
 
-    format!(
-        "
-impl shura::FieldNames for {struct_name} {{
-    const FIELDS: &'static [&'static str] = {fields};
-}}
-    ",
+    quote!(
+        impl #impl_generics shura::FieldNames for #struct_name #ty_generics #where_clause {
+            const FIELDS: &'static [&'static str] = #fields;
+        }
     )
-    .parse()
-    .unwrap()
+    .into()
 }
 
 #[proc_macro_attribute]
 pub fn main(_args: TokenStream, item: TokenStream) -> TokenStream {
-    format!(
-        "
-{item}
+    let item: TokenStream2 = item.into();
+    quote!(
+        #item
 
-#[cfg(target_os = \"android\")]
-#[no_mangle]
-fn android_main(app: AndroidApp) {{
-    shura_main(shura::ShuraConfig::default(app));
-}}
+        #[cfg(target_os = "android")]
+        #[no_mangle]
+        fn android_main(app: AndroidApp) {
+            shura_main(shura::ShuraConfig::default(app));
+        }
 
-#[cfg(not(target_os = \"android\"))]
-#[allow(dead_code)]
-fn main() {{
-    shura_main(shura::ShuraConfig::default());
-}}
-    "
+        #[cfg(not(target_os = "android"))]
+        #[allow(dead_code)]
+        fn main() {
+            shura_main(shura::ShuraConfig::default());
+        }
     )
-    .parse()
-    .unwrap()
+    .into()
 }
