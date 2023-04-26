@@ -139,6 +139,9 @@ pub fn derive_state(input: TokenStream) -> TokenStream {
         TokenStream2::from_str(&format!("&[{}]", field_names(data_struct).join(", "))).unwrap();
 
     quote!(
+        impl #impl_generics State for #struct_name #ty_generics #where_clause {
+        }
+
         impl #impl_generics shura::FieldNames for #struct_name #ty_generics #where_clause {
             const FIELDS: &'static [&'static str] = #fields;
         }
