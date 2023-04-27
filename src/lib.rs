@@ -121,6 +121,21 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
                 self.#field_name.base_mut()
             }
         }
+
+
+        impl #impl_generics std::ops::Deref for #struct_name #ty_generics #where_clause {
+            type Target = shura::BaseComponent;
+
+            fn deref(&self) -> &Self::Target {
+                self.base()
+            }
+        }
+
+        impl #impl_generics std::ops::DerefMut for #struct_name #ty_generics #where_clause {
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                self.base_mut()
+            }
+        }
     )
     .into()
 }
