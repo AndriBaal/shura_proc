@@ -141,7 +141,7 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
     .into()
 }
 
-#[proc_macro_derive(State)]
+#[proc_macro_derive(State, attributes(name, priority))]
 pub fn derive_state(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     let data_struct = &match ast.data {
