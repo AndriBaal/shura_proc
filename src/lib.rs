@@ -69,7 +69,8 @@ lazy_static! {
 
 #[proc_macro_derive(Component, attributes(base, name))]
 /// All components need to derive from the BaseComponent like the following
-/// example:
+/// 
+/// # Example:
 ///
 /// ```
 /// #[derive(Component)]
@@ -142,6 +143,16 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_derive(State, attributes(name, priority))]
+/// All scene- and globalstates must derive from this macro.
+/// 
+/// # Example:
+/// 
+/// ```
+/// #[derive(State)]
+/// struct MySceneStates {
+///     shared_model: Model
+/// }
+/// ```
 pub fn derive_state(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     let data_struct = &match ast.data {
@@ -167,7 +178,7 @@ pub fn derive_state(input: TokenStream) -> TokenStream {
         TokenStream2::from_str(&format!("&[{}]", field_names(data_struct).join(", "))).unwrap();
 
     quote!(
-        impl #impl_generics State for #struct_name #ty_generics #where_clause {
+        impl #impl_generics StateIdentifier for #struct_name #ty_generics #where_clause {
             const TYPE_NAME: &'static str = #struct_identifier;
             const IDENTIFIER: shura::StateTypeId = shura::StateTypeId::new(#hash);
             const PRIORITY: i16 = #priority;
