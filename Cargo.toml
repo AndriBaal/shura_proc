@@ -1,6 +1,6 @@
 [package]
 name = "shura_proc"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
 readme = "README.md"
@@ -12,4 +12,8 @@ description = "Derive macros for the shura component system"
 proc-macro = true
 
 [dependencies]
-syn="1.0.105"
+proc-macro2 = "1.0"
+syn = "2.0"
+const-fnv1a-hash = "1.1"
+lazy_static = "1.4.0"
+quote="1.0"
