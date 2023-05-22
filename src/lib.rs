@@ -67,7 +67,7 @@ lazy_static! {
     static ref USED_STATE_HASHES: Mutex<HashSet<u32>> = Mutex::new(HashSet::new());
 }
 
-#[proc_macro_derive(Component, attributes(base, name))]
+#[proc_macro_derive(Component, attributes(base, name, collider, rigid_body))]
 /// All components need to derive from the BaseComponent like the following
 /// 
 /// # Example:
@@ -104,6 +104,21 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
     }
     hashes.insert(hash);
 
+
+    #[cfg(feature = "physics")]
+    let physics_impl = quote! {
+        fn collider(&self) -> Option<shura::physics::ColliderHandle> {
+            None
+        }
+
+        fn rigid_body(&self) -> Option<shura::physics::RigidBodyHandle> {
+            None
+        }
+    };
+
+    #[cfg(not(feature = "physics"))]
+    let physics_impl = quote!();
+
     quote!(
         impl #impl_generics shura::FieldNames for #struct_name #ty_generics #where_clause {
             const FIELDS: &'static [&'static str] = #fields;
@@ -116,12 +131,14 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
 
         impl #impl_generics shura::ComponentDerive for #struct_name #ty_generics #where_clause {
             fn base(&self) -> &shura::BaseComponent {
-                self.#field_name.base()
+                &self.#field_name
             }
 
             fn base_mut(&mut self) -> &mut shura::BaseComponent {
-                self.#field_name.base_mut()
+                &mut self.#field_name
             }
+
+            #physics_impl
         }
 
 
