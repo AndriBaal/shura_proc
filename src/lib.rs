@@ -104,21 +104,6 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
     }
     hashes.insert(hash);
 
-
-    #[cfg(feature = "physics")]
-    let physics_impl = quote! {
-        fn collider(&self) -> Option<shura::physics::ColliderHandle> {
-            None
-        }
-
-        fn rigid_body(&self) -> Option<shura::physics::RigidBodyHandle> {
-            None
-        }
-    };
-
-    #[cfg(not(feature = "physics"))]
-    let physics_impl = quote!();
-
     quote!(
         impl #impl_generics shura::FieldNames for #struct_name #ty_generics #where_clause {
             const FIELDS: &'static [&'static str] = #fields;
@@ -130,29 +115,12 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
         }
 
         impl #impl_generics shura::ComponentDerive for #struct_name #ty_generics #where_clause {
-            fn base(&self) -> &shura::BaseComponent {
+            fn base(&self) -> &dyn BaseComponent {
                 &self.#field_name
             }
 
-            fn base_mut(&mut self) -> &mut shura::BaseComponent {
-                &mut self.#field_name
-            }
-
-            #physics_impl
-        }
-
-
-        impl #impl_generics std::ops::Deref for #struct_name #ty_generics #where_clause {
-            type Target = shura::BaseComponent;
-
-            fn deref(&self) -> &Self::Target {
-                self.base()
-            }
-        }
-
-        impl #impl_generics std::ops::DerefMut for #struct_name #ty_generics #where_clause {
-            fn deref_mut(&mut self) -> &mut Self::Target {
-                self.base_mut()
+            fn component_type_id(&self) -> ComponentTypeId {
+                shura::ComponentTypeId::new(#hash)
             }
         }
     )
