@@ -115,11 +115,11 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
         }
 
         impl #impl_generics shura::ComponentDerive for #struct_name #ty_generics #where_clause {
-            fn base(&self) -> &dyn BaseComponent {
+            fn base(&self) -> &dyn shura::BaseComponent {
                 &self.#field_name
             }
 
-            fn component_type_id(&self) -> ComponentTypeId {
+            fn component_type_id(&self) -> shura::ComponentTypeId {
                 shura::ComponentTypeId::new(#hash)
             }
         }
