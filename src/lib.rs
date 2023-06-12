@@ -68,7 +68,9 @@ lazy_static! {
 }
 
 #[proc_macro_derive(Component, attributes(base, name, collider, rigid_body))]
-/// All components need to derive from the BaseComponent like the following
+/// All components need to derive from a BaseComponent. This macro is used to make this more
+/// easily
+/// 
 /// 
 /// # Example:
 ///
@@ -177,6 +179,7 @@ pub fn derive_state(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
+/// This macro helps setup a cross plattform main method 
 pub fn main(_args: TokenStream, item: TokenStream) -> TokenStream {
     let item: TokenStream2 = item.into();
     quote!(
