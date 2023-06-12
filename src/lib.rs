@@ -67,8 +67,10 @@ lazy_static! {
     static ref USED_STATE_HASHES: Mutex<HashSet<u32>> = Mutex::new(HashSet::new());
 }
 
-#[proc_macro_derive(Component, attributes(base, name))]
-/// All components need to derive from the BaseComponent like the following
+#[proc_macro_derive(Component, attributes(base, name, collider, rigid_body))]
+/// All components need to derive from a BaseComponent. This macro is used to make this more
+/// easily
+/// 
 /// 
 /// # Example:
 ///
@@ -115,27 +117,12 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
         }
 
         impl #impl_generics shura::ComponentDerive for #struct_name #ty_generics #where_clause {
-            fn base(&self) -> &shura::BaseComponent {
-                self.#field_name.base()
+            fn base(&self) -> &dyn shura::BaseComponent {
+                &self.#field_name
             }
 
-            fn base_mut(&mut self) -> &mut shura::BaseComponent {
-                self.#field_name.base_mut()
-            }
-        }
-
-
-        impl #impl_generics std::ops::Deref for #struct_name #ty_generics #where_clause {
-            type Target = shura::BaseComponent;
-
-            fn deref(&self) -> &Self::Target {
-                self.base()
-            }
-        }
-
-        impl #impl_generics std::ops::DerefMut for #struct_name #ty_generics #where_clause {
-            fn deref_mut(&mut self) -> &mut Self::Target {
-                self.base_mut()
+            fn component_type_id(&self) -> shura::ComponentTypeId {
+                shura::ComponentTypeId::new(#hash)
             }
         }
     )
@@ -192,6 +179,7 @@ pub fn derive_state(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
+/// This macro helps setup a cross plattform main method 
 pub fn main(_args: TokenStream, item: TokenStream) -> TokenStream {
     let item: TokenStream2 = item.into();
     quote!(
