@@ -151,7 +151,6 @@ pub fn derive_state(input: TokenStream) -> TokenStream {
     let struct_name_str = struct_name.to_string();
     let struct_identifier = name_field(&ast, "name").unwrap_or(parse_quote!(#struct_name_str));
     let struct_identifier_str = struct_identifier.to_token_stream().to_string();
-    let priority = name_field(&ast, "priority").unwrap_or(parse_quote!(0));
     let mut hashes = USED_STATE_HASHES.lock().unwrap();
     let hash = const_fnv1a_hash::fnv1a_hash_str_32(&struct_identifier_str);
     if hashes.contains(&hash) {
@@ -168,11 +167,14 @@ pub fn derive_state(input: TokenStream) -> TokenStream {
         impl #impl_generics StateIdentifier for #struct_name #ty_generics #where_clause {
             const TYPE_NAME: &'static str = #struct_identifier;
             const IDENTIFIER: shura::StateTypeId = shura::StateTypeId::new(#hash);
-            const PRIORITY: i16 = #priority;
         }
 
         impl #impl_generics shura::FieldNames for #struct_name #ty_generics #where_clause {
             const FIELDS: &'static [&'static str] = #fields;
+        }
+
+        impl #impl_generics shura::StateDerive for #struct_name #ty_generics #where_clause {
+            
         }
     )
     .into()
