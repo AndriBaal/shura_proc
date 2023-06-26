@@ -121,6 +121,10 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
                 &self.#field_name
             }
 
+            fn base_mut(&mut self) -> &mut dyn shura::BaseComponent {
+                &mut self.#field_name
+            }
+
             fn component_type_id(&self) -> shura::ComponentTypeId {
                 shura::ComponentTypeId::new(#hash)
             }
