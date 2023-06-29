@@ -141,25 +141,29 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
         quote!()
     } else {
         quote!(
-            const INSTANCE_SIZE: u32 = (std::mem::size_of::<shura::InstanceData>() + #(std::mem::size_of::<#buffer_types>())+*) as u32;
+            const INSTANCE_SIZE: u64 = (std::mem::size_of::<shura::InstanceData>() + #(std::mem::size_of::<#buffer_types>())+*) as u64;
             fn buffer(
                 buffer: &mut shura::InstanceBuffer,
                 world: &shura::physics::World,
                 gpu: &shura::Gpu,
                 components: &mut dyn Iterator<Item = &shura::BoxedComponent>,
             ) {
+
                 #[repr(C)]
-                #[derive(Clone, Copy, shura::bytemuck::Pod, shura::bytemuck::Zeroable)]
+                #[derive(Clone, Copy)]
                 struct Instance {
                     #base_field_name: shura::InstanceData,
                     #(#struct_fields),*
                 }
 
+                // Derive macro not working, so we have to manually implement bytemuck
+                unsafe impl shura::bytemuck::Pod for Instance {}
+                unsafe impl shura::bytemuck::Zeroable for Instance {}
+
                 let instances = components
                     .into_iter()
                     .map(|component| {
                         let casted = component.downcast_ref::<Self>().unwrap();
-                        println!("{}", std::mem::size_of::<Instance>());
                         Instance {
                             #base_field_name: casted.#base_field_name.instance(world),
                             #(#buffer_fields: casted.#buffer_fields),*
@@ -170,7 +174,6 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
             }
         )
     };
-
 
     quote!(
         impl #impl_generics shura::FieldNames for #struct_name #ty_generics #where_clause {
