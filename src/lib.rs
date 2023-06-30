@@ -137,6 +137,13 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
         struct_fields.push(quote!(#field: #ty));
         // struct_values.push(quote!(#field: casted.#field));
     }
+
+    let (world_def, world) = if cfg!(feature = "physics") {
+        (quote!(world: &shura::physics::World,), quote!(world))
+    } else {
+        (quote!(), quote!())
+    };
+
     let buffer_impl = if buffer_fields.is_empty() {
         quote!()
     } else {
@@ -144,7 +151,7 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
             const INSTANCE_SIZE: u64 = (std::mem::size_of::<shura::InstanceData>() + #(std::mem::size_of::<#buffer_types>())+*) as u64;
             fn buffer(
                 buffer: &mut shura::InstanceBuffer,
-                world: &shura::physics::World,
+                #world_def
                 gpu: &shura::Gpu,
                 components: &mut dyn Iterator<Item = &shura::BoxedComponent>,
             ) {
@@ -165,7 +172,7 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
                     .map(|component| {
                         let casted = component.downcast_ref::<Self>().unwrap();
                         Instance {
-                            #base_field_name: casted.#base_field_name.instance(world),
+                            #base_field_name: casted.#base_field_name.instance(#world),
                             #(#buffer_fields: casted.#buffer_fields),*
                         }
                     })
