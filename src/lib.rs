@@ -153,7 +153,7 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
                 buffer: &mut shura::InstanceBuffer,
                 #world_def
                 gpu: &shura::Gpu,
-                components: &mut dyn Iterator<Item = &shura::BoxedComponent>,
+                mut helper: shura::BufferHelper
             ) {
 
                 #[repr(C)]
@@ -167,17 +167,12 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
                 unsafe impl shura::bytemuck::Pod for Instance {}
                 unsafe impl shura::bytemuck::Zeroable for Instance {}
 
-                let instances = components
-                    .into_iter()
-                    .map(|component| {
-                        let casted = component.downcast_ref::<Self>().unwrap();
-                        Instance {
-                            #base_field_name: casted.#base_field_name.instance(#world),
-                            #(#buffer_fields: casted.#buffer_fields),*
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                buffer.write(gpu, shura::bytemuck::cast_slice(&instances));
+                helper.buffer::<Self, Instance>(buffer, gpu, |component| {
+                    Instance {
+                        #base_field_name: component.#base_field_name.instance(#world),
+                        #(#buffer_fields: component.#buffer_fields),*
+                    }
+                });
             }
         )
     };
