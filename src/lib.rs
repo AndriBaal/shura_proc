@@ -208,7 +208,7 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
     .into()
 }
 
-#[proc_macro_derive(State, attributes(name, priority))]
+#[proc_macro_derive(State, attributes(name))]
 /// All scene- and globalstates must derive from this macro.
 ///
 /// # Example:
