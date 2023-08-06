@@ -138,38 +138,48 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
         // struct_values.push(quote!(#field: casted.#field));
     }
 
-    let (world_def, world) = if cfg!(feature = "physics") {
-        (quote!(world: &shura::physics::World,), quote!(world))
-    } else {
-        (quote!(), quote!())
-    };
-
     let buffer_impl = if buffer_fields.is_empty() {
         quote!()
     } else {
         quote!(
             const INSTANCE_SIZE: u64 = (std::mem::size_of::<shura::InstanceData>() + #(std::mem::size_of::<#buffer_types>())+*) as u64;
-            fn buffer(
-                buffer: &mut shura::InstanceBuffer,
-                #world_def
+            fn buffer_with(
                 gpu: &shura::Gpu,
-                mut helper: shura::BufferHelper
+                mut helper: shura::BufferHelper,
+                each: impl Fn(&mut Self) + Send + Sync
             ) {
-
+                use shura::bytemuck;
                 #[repr(C)]
-                #[derive(Clone, Copy)]
+                #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
                 struct Instance {
                     #base_field_name: shura::InstanceData,
                     #(#struct_fields),*
                 }
 
-                // Derive macro not working, so we have to manually implement bytemuck
-                unsafe impl shura::bytemuck::Pod for Instance {}
-                unsafe impl shura::bytemuck::Zeroable for Instance {}
-
-                helper.buffer::<Self, Instance>(buffer, gpu, |component| {
+                helper.buffer::<Self, Instance>(gpu, |component| {
+                    (each)(component);
                     Instance {
-                        #base_field_name: component.#base_field_name.instance(#world),
+                        #base_field_name: component.#base_field_name.instance(helper.world),
+                        #(#buffer_fields: component.#buffer_fields),*
+                    }
+                });
+            }
+
+            fn buffer(
+                gpu: &shura::Gpu,
+                mut helper: shura::BufferHelper
+            ) {
+                use shura::bytemuck;
+                #[repr(C)]
+                #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+                struct Instance {
+                    #base_field_name: shura::InstanceData,
+                    #(#struct_fields),*
+                }
+
+                helper.buffer::<Self, Instance>(gpu, |component| {
+                    Instance {
+                        #base_field_name: component.#base_field_name.instance(helper.world),
                         #(#buffer_fields: component.#buffer_fields),*
                     }
                 });
