@@ -24,7 +24,7 @@ fn field_names(data_struct: &DataStruct) -> Vec<String> {
     return result;
 }
 
-fn position_field(data_struct: &DataStruct, attr_name: &str) -> Option<(Ident, TypePath)> {
+fn position_field(data_struct: &DataStruct, attr_name: &str) -> Option<Ident> {
     match &data_struct.fields {
         Fields::Named(fields_named) => {
             for field in fields_named.named.iter() {
@@ -32,9 +32,9 @@ fn position_field(data_struct: &DataStruct, attr_name: &str) -> Option<(Ident, T
                     let name = attr.path();
                     if name.to_token_stream().to_string() == attr_name {
                         match &field.ty {
-                            Type::Path(type_name) => {
+                            Type::Path(_type_name) => {
                                 let field_name = field.ident.as_ref().unwrap();
-                                return Some((field_name.clone(), type_name.clone()));
+                                return Some(field_name.clone());
                             }
                             _ => panic!("Cannot extract the type of the component."),
                         };
@@ -93,20 +93,7 @@ lazy_static! {
     static ref USED_STATE_HASHES: Mutex<HashSet<u32>> = Mutex::new(HashSet::new());
 }
 
-#[proc_macro_derive(Component, attributes(base, name, buffer))]
-/// All components need to derive from a BaseComponent. This macro is used to make this more
-/// easily
-///
-///
-/// # Example:
-///
-/// ```
-/// #[derive(Component)]
-/// struct Bunny {
-///     #[base] base: BaseComponent,
-///     linvel: Vector<f32>,    
-/// }
-/// ```
+#[proc_macro_derive(Component, attributes(position, name, buffer))]
 pub fn derive_component(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     let data_struct = match ast.data {
@@ -119,30 +106,34 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
     let struct_identifier = name_field(&ast, "name").unwrap_or(parse_quote!(#struct_name_str));
     let struct_identifier_str = struct_identifier.to_token_stream().to_string();
     let field_names = field_names(data_struct);
-    let (base_field_name, _) = position_field(data_struct, "base")
-        .expect("The helper attribute #[component] has not been found!");
+    let (has_position, position_field_name) = position_field(data_struct, "position")
+        .map(|f| (true, quote!(#f)))
+        .unwrap_or((false, quote!(EMPTY_DEFAULT_COMPONENT)));
+    let var_position_field_name = if has_position {
+        quote!(self.#position_field_name)
+    } else {
+        quote!(shura::#position_field_name)
+    };
 
     let mut hashes = USED_COMPONENT_HASHES.lock().unwrap();
-    let hash = const_fnv1a_hash::fnv1a_hash_str_32(&struct_identifier_str);
+    let mut hash = const_fnv1a_hash::fnv1a_hash_str_32(&struct_identifier_str);
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
-    if hashes.contains(&hash) {
-        panic!("A component with the identifier '{struct_identifier_str}' already exists!");
+    while hashes.contains(&hash) {
+        hash += 1;
     }
     hashes.insert(hash);
 
     let (buffer_fields, buffer_types) = fields_with_tag(data_struct, "buffer");
     let mut struct_fields = Vec::with_capacity(buffer_fields.len());
-    // let mut struct_values = Vec::with_capacity(buffer_fields.len());
     for (field, ty) in buffer_fields.iter().zip(buffer_types.iter()) {
         struct_fields.push(quote!(#field: #ty));
-        // struct_values.push(quote!(#field: casted.#field));
     }
 
     let buffer_impl = if buffer_fields.is_empty() {
         quote!()
     } else {
         quote!(
-            const INSTANCE_SIZE: u64 = (std::mem::size_of::<shura::InstanceData>() + #(std::mem::size_of::<#buffer_types>())+*) as u64;
+            const INSTANCE_SIZE: u64 = (std::mem::size_of::<shura::InstancePosition>() + #(std::mem::size_of::<#buffer_types>())+*) as u64;
             fn buffer_with(
                 gpu: &shura::Gpu,
                 mut helper: shura::BufferHelper,
@@ -152,14 +143,14 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
                 #[repr(C)]
                 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
                 struct Instance {
-                    #base_field_name: shura::InstanceData,
+                    #position_field_name: shura::InstancePosition,
                     #(#struct_fields),*
                 }
 
                 helper.buffer::<Self, Instance>(gpu, |component| {
                     (each)(component);
                     Instance {
-                        #base_field_name: component.#base_field_name.instance(helper.world),
+                        #position_field_name: component.position().instance(helper.world),
                         #(#buffer_fields: component.#buffer_fields),*
                     }
                 });
@@ -173,17 +164,34 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
                 #[repr(C)]
                 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
                 struct Instance {
-                    #base_field_name: shura::InstanceData,
+                    #position_field_name: shura::InstancePosition,
                     #(#struct_fields),*
                 }
 
                 helper.buffer::<Self, Instance>(gpu, |component| {
                     Instance {
-                        #base_field_name: component.#base_field_name.instance(helper.world),
+                        #position_field_name: component.position().instance(helper.world),
                         #(#buffer_fields: component.#buffer_fields),*
                     }
                 });
             }
+        )
+    };
+
+    let init_finish = if has_position {
+        quote!(
+            fn init(&mut self, handle: shura::ComponentHandle, world: &mut shura::World) {
+                #var_position_field_name.init(handle, world)
+            }
+
+            fn finish(&mut self, world: &mut shura::World) {
+                #var_position_field_name.finish(world)
+            }
+        )
+    } else {
+        quote!(
+            fn init(&mut self, handle: shura::ComponentHandle, world: &mut shura::World) {}
+            fn finish(&mut self, world: &mut shura::World) {}
         )
     };
 
@@ -202,67 +210,15 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
         }
 
         impl #impl_generics shura::ComponentDerive for #struct_name #ty_generics #where_clause {
-            fn base(&self) -> &dyn shura::BaseComponent {
-                &self.#base_field_name
+            fn position(&self) -> &dyn shura::Position {
+                &#var_position_field_name
             }
 
-            fn base_mut(&mut self) -> &mut dyn shura::BaseComponent {
-                &mut self.#base_field_name
-            }
+            #init_finish
 
             fn component_type_id(&self) -> shura::ComponentTypeId {
-                shura::ComponentTypeId::new(#hash)
+                Self::IDENTIFIER
             }
-        }
-    )
-    .into()
-}
-
-#[proc_macro_derive(State, attributes(name))]
-/// All scene- and globalstates must derive from this macro.
-///
-/// # Example:
-///
-/// ```
-/// #[derive(State)]
-/// struct MySceneStates {
-///     shared_model: Model
-/// }
-/// ```
-pub fn derive_state(input: TokenStream) -> TokenStream {
-    let ast = parse_macro_input!(input as DeriveInput);
-    let data_struct = &match ast.data {
-        Data::Struct(ref data_struct) => data_struct,
-        _ => panic!("Must be a struct!"),
-    };
-
-    let struct_name = ast.ident.clone();
-    let struct_name_str = struct_name.to_string();
-    let struct_identifier = name_field(&ast, "name").unwrap_or(parse_quote!(#struct_name_str));
-    let struct_identifier_str = struct_identifier.to_token_stream().to_string();
-    let mut hashes = USED_STATE_HASHES.lock().unwrap();
-    let hash = const_fnv1a_hash::fnv1a_hash_str_32(&struct_identifier_str);
-    if hashes.contains(&hash) {
-        panic!("A state with the identifier '{struct_identifier_str}' already exists!");
-    }
-    hashes.insert(hash);
-
-    let struct_name = ast.ident;
-    let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
-    let field_names = field_names(data_struct);
-
-    quote!(
-        impl #impl_generics StateIdentifier for #struct_name #ty_generics #where_clause {
-            const TYPE_NAME: &'static str = #struct_identifier;
-            const IDENTIFIER: shura::StateTypeId = shura::StateTypeId::new(#hash);
-        }
-
-        impl #impl_generics shura::FieldNames for #struct_name #ty_generics #where_clause {
-            const FIELDS: &'static [&'static str] = &[#(#field_names),*];
-        }
-
-        impl #impl_generics shura::StateDerive for #struct_name #ty_generics #where_clause {
-
         }
     )
     .into()
