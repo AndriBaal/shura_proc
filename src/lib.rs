@@ -1,28 +1,9 @@
-use lazy_static::lazy_static;
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
-use std::collections::HashSet;
 use std::sync::Mutex;
+use std::{collections::HashSet, sync::OnceLock};
 use syn::{parse_macro_input, parse_quote, Data, DataStruct, DeriveInput, Fields, Type, TypePath};
-
-fn field_names(data_struct: &DataStruct) -> Vec<String> {
-    let mut result = vec![];
-    match data_struct.fields {
-        Fields::Named(ref fields_named) => {
-            for field in fields_named.named.iter() {
-                let field_name = field
-                    .ident
-                    .as_ref()
-                    .and_then(|f| Some(format!("\"{0}\"", f.to_string())))
-                    .unwrap();
-                result.push(field_name);
-            }
-        }
-        _ => (),
-    }
-    return result;
-}
 
 fn position_field(data_struct: &DataStruct, attr_name: &str) -> Option<Ident> {
     match &data_struct.fields {
@@ -30,7 +11,7 @@ fn position_field(data_struct: &DataStruct, attr_name: &str) -> Option<Ident> {
             for field in fields_named.named.iter() {
                 for attr in &field.attrs {
                     let name = attr.path();
-                    if name.to_token_stream().to_string() == attr_name {
+                    if name.is_ident(attr_name) {
                         match &field.ty {
                             Type::Path(_type_name) => {
                                 let field_name = field.ident.as_ref().unwrap();
@@ -47,19 +28,32 @@ fn position_field(data_struct: &DataStruct, attr_name: &str) -> Option<Ident> {
     None
 }
 
-fn name_field(ast: &DeriveInput, attr_name: &str) -> Option<syn::Expr> {
+fn name_value_field(ast: &DeriveInput, attr_name: &str) -> Option<syn::Expr> {
     for attr in &ast.attrs {
         let name = match &attr.meta {
             syn::Meta::NameValue(p) => p,
             _ => continue,
         };
 
-        let name_str = attr.path().to_token_stream().to_string();
-        if name_str == attr_name {
+        if name.path.is_ident(attr_name) {
             return Some(name.value.clone());
         }
     }
     return None;
+}
+
+fn is_path_set(ast: &DeriveInput, attr_name: &str) -> bool {
+    for attr in &ast.attrs {
+        let name = match &attr.meta {
+            syn::Meta::Path(p) => p,
+            _ => continue,
+        };
+
+        if name.is_ident(attr_name) {
+            return true;
+        }
+    }
+    return false;
 }
 
 fn fields_with_tag(data_struct: &DataStruct, attr_name: &str) -> (Vec<Ident>, Vec<TypePath>) {
@@ -70,7 +64,7 @@ fn fields_with_tag(data_struct: &DataStruct, attr_name: &str) -> (Vec<Ident>, Ve
             for field in fields_named.named.iter() {
                 for attr in &field.attrs {
                     let name = attr.path();
-                    if name.to_token_stream().to_string() == attr_name {
+                    if name.is_ident(attr_name) {
                         match &field.ty {
                             Type::Path(type_name) => {
                                 let field_name = field.ident.as_ref().unwrap();
@@ -88,14 +82,15 @@ fn fields_with_tag(data_struct: &DataStruct, attr_name: &str) -> (Vec<Ident>, Ve
     return (fields, tys);
 }
 
-lazy_static! {
-    static ref USED_COMPONENT_HASHES: Mutex<HashSet<u32>> = Mutex::new(HashSet::new());
-    static ref USED_STATE_HASHES: Mutex<HashSet<u32>> = Mutex::new(HashSet::new());
-}
+static USED_COMPONENT_HASHES: OnceLock<Mutex<HashSet<u32>>> = OnceLock::new();
 
-#[proc_macro_derive(Component, attributes(position, name, buffer))]
+#[proc_macro_derive(Component, attributes(position, name, buffer, non_parallel))]
 pub fn derive_component(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
+    return component(&ast).into();
+}
+
+fn component(ast: &DeriveInput) -> TokenStream2 {
     let data_struct = match ast.data {
         Data::Struct(ref data_struct) => data_struct,
         _ => panic!("Must be a struct!"),
@@ -103,9 +98,9 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
 
     let struct_name = ast.ident.clone();
     let struct_name_str = struct_name.to_string();
-    let struct_identifier = name_field(&ast, "name").unwrap_or(parse_quote!(#struct_name_str));
+    let struct_identifier =
+        name_value_field(&ast, "name").unwrap_or(parse_quote!(#struct_name_str));
     let struct_identifier_str = struct_identifier.to_token_stream().to_string();
-    let field_names = field_names(data_struct);
     let (has_position, position_field_name) = position_field(data_struct, "position")
         .map(|f| (true, quote!(#f)))
         .unwrap_or((false, quote!(EMPTY_DEFAULT_COMPONENT)));
@@ -115,13 +110,17 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
         quote!(shura::#position_field_name)
     };
 
-    let mut hashes = USED_COMPONENT_HASHES.lock().unwrap();
+    let mut hashes = USED_COMPONENT_HASHES
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .unwrap();
     let mut hash = const_fnv1a_hash::fnv1a_hash_str_32(&struct_identifier_str);
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
     while hashes.contains(&hash) {
         hash += 1;
     }
     hashes.insert(hash);
+    drop(hashes); // Free the mutex lock
 
     let (buffer_fields, buffer_types) = fields_with_tag(data_struct, "buffer");
     let mut struct_fields = Vec::with_capacity(buffer_fields.len());
@@ -129,25 +128,46 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
         struct_fields.push(quote!(#field: #ty));
     }
 
+    let non_parallel = is_path_set(&ast, "non_parallel");
+    let buffer_method = if cfg!(feature = "rayon") && !non_parallel {
+        quote!(par_buffer)
+    } else {
+        quote!(buffer)
+    };
+
     let buffer_impl = if buffer_fields.is_empty() {
-        quote!()
+        quote!(
+            const INSTANCE_SIZE: u64 = std::mem::size_of::<shura::InstancePosition>() as u64;
+            fn buffer_with(
+                mut helper: BufferHelper<Self>,
+                each: impl Fn(&mut Self) + Send + Sync,
+            ) {
+                helper.#buffer_method(|c: &mut Self| {
+                    each(c);
+                    c.position().instance(helper.world)
+                })
+            }
+            fn buffer(mut helper: BufferHelper<Self>) {
+                helper.#buffer_method(|component| component.position().instance(helper.world))
+            }
+        )
     } else {
         quote!(
             const INSTANCE_SIZE: u64 = (std::mem::size_of::<shura::InstancePosition>() + #(std::mem::size_of::<#buffer_types>())+*) as u64;
             fn buffer_with(
-                gpu: &shura::Gpu,
-                mut helper: shura::BufferHelper,
+                mut helper: shura::BufferHelper<Self>,
                 each: impl Fn(&mut Self) + Send + Sync
             ) {
-                use shura::bytemuck;
                 #[repr(C)]
-                #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+                #[derive(Clone, Copy)]
                 struct Instance {
                     #position_field_name: shura::InstancePosition,
                     #(#struct_fields),*
                 }
+                unsafe impl bytemuck::Pod for Instance {}
+                unsafe impl bytemuck::Zeroable for Instance {}
 
-                helper.buffer::<Self, Instance>(gpu, |component| {
+                helper.#buffer_method(|component| {
                     (each)(component);
                     Instance {
                         #position_field_name: component.position().instance(helper.world),
@@ -157,18 +177,18 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
             }
 
             fn buffer(
-                gpu: &shura::Gpu,
-                mut helper: shura::BufferHelper
+                mut helper: shura::BufferHelper<Self>
             ) {
-                use shura::bytemuck;
                 #[repr(C)]
-                #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+                #[derive(Clone, Copy)]
                 struct Instance {
                     #position_field_name: shura::InstancePosition,
                     #(#struct_fields),*
                 }
+                unsafe impl bytemuck::Pod for Instance {}
+                unsafe impl bytemuck::Zeroable for Instance {}
 
-                helper.buffer::<Self, Instance>(gpu, |component| {
+                helper.#buffer_method(|component| {
                     Instance {
                         #position_field_name: component.position().instance(helper.world),
                         #(#buffer_fields: component.#buffer_fields),*
@@ -195,33 +215,26 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
         )
     };
 
-    quote!(
-        impl #impl_generics shura::FieldNames for #struct_name #ty_generics #where_clause {
-            const FIELDS: &'static [&'static str] = &[#(#field_names),*];
-        }
-
+    return quote!(
         impl #impl_generics shura::ComponentIdentifier for #struct_name #ty_generics #where_clause {
             const TYPE_NAME: &'static str = #struct_identifier;
             const IDENTIFIER: shura::ComponentTypeId = shura::ComponentTypeId::new(#hash);
         }
 
-        impl #impl_generics shura::ComponentBuffer for #struct_name #ty_generics #where_clause {
-            #buffer_impl
-        }
-
-        impl #impl_generics shura::ComponentDerive for #struct_name #ty_generics #where_clause {
+        impl #impl_generics shura::Component for #struct_name #ty_generics #where_clause {
             fn position(&self) -> &dyn shura::Position {
                 &#var_position_field_name
             }
 
             #init_finish
 
+            #buffer_impl
+
             fn component_type_id(&self) -> shura::ComponentTypeId {
                 Self::IDENTIFIER
             }
         }
-    )
-    .into()
+    );
 }
 
 #[proc_macro_attribute]
@@ -244,4 +257,27 @@ pub fn main(_args: TokenStream, item: TokenStream) -> TokenStream {
         }
     )
     .into()
+}
+
+#[proc_macro_derive(Resource, attributes(global))]
+pub fn derive_resource(input: TokenStream) -> TokenStream {
+    let ast = parse_macro_input!(input as DeriveInput);
+    let component: TokenStream2 = component(&ast).into();
+    let struct_name = ast.ident.clone();
+    let global = is_path_set(&ast, "global");
+    let config = if global {
+        quote!(GLOBAL_RESOURCE)
+    } else {
+        quote!(RESOURCE)
+    };
+
+    let resource = quote!(
+        #component
+
+        impl shura::ComponentController for #struct_name {
+            const CONFIG: shura::ComponentConfig = shura::ComponentConfig::#config;
+        }
+    );
+
+    return resource.into();
 }
